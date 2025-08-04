@@ -15,5 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     //console.log('IPC result:', result);
     return result;
   },
+  requestMicrophoneAccess: async () => {
+    console.log('Requesting microphone access via IPC');
+    const result = await ipcRenderer.invoke('request-microphone-access');
+    console.log('Microphone access result:', result);
+    return result;
+  },
   test: () => 'electronAPI is working!'
 });

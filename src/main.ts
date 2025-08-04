@@ -67,6 +67,25 @@ ipcMain.handle('get-server-url', () => {
   return url;
 });
 
+// Handle microphone access request
+ipcMain.handle('request-microphone-access', async () => {
+  try {
+    const permissions = await checkMediaPermissions();
+    return {
+      success: true,
+      microphone: permissions.microphone,
+      message: permissions.microphone ? 'Microphone access granted' : 'Microphone access denied'
+    };
+  } catch (error) {
+    console.error('Error requesting microphone access:', error);
+    return {
+      success: false,
+      microphone: false,
+      message: `Error requesting microphone access: ${error}`
+    };
+  }
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -100,9 +119,13 @@ if (electronServer) {
 async function checkMediaPermissions() {
   if (process.platform === 'darwin') {
     const micGranted = await systemPreferences.askForMediaAccess('microphone');
+    console.log('macOS microphone permission:', micGranted);
     return { microphone: micGranted };
   }
-  return { microphone: true }; // For non-macOS platforms
+  // For non-macOS platforms, assume permission is available
+  // The actual permission will be handled by the browser's getUserMedia API
+  console.log('Non-macOS platform, assuming microphone access available');
+  return { microphone: true };
 }
 
 app.whenReady().then(async () => {
