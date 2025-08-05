@@ -35,8 +35,8 @@ router.get('/', (req, res) => {
     message: 'LLM Chat API Server', 
     status: 'running',
     endpoints: {
-      prompt: 'POST /api/prompt',
-      health: 'GET /api/health'
+      prompt: 'POST /prompt',
+      health: 'GET /health'
     }
   });
 });
