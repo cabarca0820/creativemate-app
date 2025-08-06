@@ -3,14 +3,9 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { ElectronServer } from './server/server';
 
-declare global {
-  interface Window {
-    electronAPI: {
-      getServerPort: () => number;
-      getServerUrl: () => string;
-    };
-  }
-}
+// Declare global variables for server info
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
+declare const MAIN_WINDOW_VITE_NAME: string;
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
