@@ -340,7 +340,7 @@ def handle_audio_transcription(audio_base64):
         from whisper_integration import CreativeMateWhisperSTT
         
         # Initialize Whisper STT
-        whisper_stt = CreativeMateWhisperSTT(model_size='small')
+        whisper_stt = CreativeMateWhisperSTT(model_size='base')
         
         if whisper_stt.is_available():
             transcribed_text = whisper_stt.transcribe_audio_data(audio_base64)

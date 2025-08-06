@@ -125,7 +125,7 @@ def integrate_with_existing_system(input_data: dict) -> str:
         print("Processing audio with Whisper STT", file=sys.stderr)
         
         # Initialize Whisper STT (you can make model size configurable)
-        whisper_stt = CreativeMateWhisperSTT(model_size='small')
+        whisper_stt = CreativeMateWhisperSTT(model_size='base')
         
         if whisper_stt.is_available():
             # Transcribe the audio
