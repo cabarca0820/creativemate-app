@@ -5,9 +5,31 @@ import { spawn } from 'child_process';
 import path from 'path';
 
 // Define absolute path to the Python script
-const PYTHON_SCRIPT_PATH = path.join(process.cwd(), 'src', 'python', 'llmUtils.py');
+//const PYTHON_SCRIPT_PATH = path.join(process.cwd(), 'src', 'python', 'llmUtils.py');
 const router = express.Router();
 
+//const PORT = process.env.PORT || 3001;
+// const PORT = window.electronAPI?.getServerPort() || 3001;
+// const serverUrl = window.electronAPI?.getServerUrl() || 'http://localhost:3001'; // fallback
+
+//------Start setting of Python script path and venv executable for production builds
+// In a packaged app, resources are often in a 'resources' directory
+// The venv_creativemate folder would be copied here by electron-forge
+const isDev = process.env.NODE_ENV === 'development';
+
+const PYTHON_VENV_PATH = isDev
+  ? path.join(process.cwd(), 'venv_creativemate')
+  : path.join(process.resourcesPath, 'venv_creativemate');
+
+const PYTHON_EXECUTABLE = process.platform === 'win32'
+  ? path.join(PYTHON_VENV_PATH, 'Scripts', 'python.exe')
+  : path.join(PYTHON_VENV_PATH, 'bin', 'python3'); // Or 'python' depending on your venv setup
+
+const PYTHON_SCRIPT_PATH = isDev
+  ? path.join(process.cwd(), 'src', 'python', 'llmUtils.py')
+  : path.join(process.resourcesPath, 'src', 'python', 'llmUtils.py'); // Adjust this path based on where python script is copied
+
+//------End setting of Python script path and venv executable for production builds
 
 // Configure multer for handling file uploads
 const upload = multer({ 
@@ -29,14 +51,24 @@ const documentUpload = multer({
   }
 });
 
+// Configure multer for audio uploads
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit for audio
+});
+
+router.use(cors());
+router.use(express.json({ limit: '50mb' })); // Increase body size limit for large conversations
+
+
 // Root route
 router.get('/', (req, res) => {
   res.json({ 
     message: 'LLM Chat API Server', 
     status: 'running',
     endpoints: {
-      prompt: 'POST /api/prompt',
-      health: 'GET /api/health'
+      prompt: 'POST /prompt',
+      health: 'GET /health'
     }
   });
 });
@@ -48,11 +80,10 @@ router.post('/prompt', upload.single('audio'), (req, res) => {
   const messages = req.body.messages ? JSON.parse(req.body.messages) : [];
   const audioBuffer = req.file?.buffer;
 
-  //For debugging purposes
-  // console.log('Received prompt:', promptInput);
-  // console.log('Received images:', images.length);
-  // console.log('Received messages history:', messages.length);
-  // console.log('Received audio size:', audioBuffer?.length);
+  console.log('Received prompt:', promptInput);
+  console.log('Received images:', images.length);
+  console.log('Received messages history:', messages.length);
+  console.log('Received audio size:', audioBuffer?.length);
 
   if (!promptInput && images.length === 0 && !audioBuffer) {
     return res.status(400).json({ error: 'Prompt, images, or audio are required' });
@@ -78,7 +109,7 @@ router.post('/prompt', upload.single('audio'), (req, res) => {
   
   try {
     // Spawn Python process
-    const pythonProcess = spawn('python3', [PYTHON_SCRIPT_PATH], {
+    const pythonProcess = spawn(PYTHON_EXECUTABLE, [PYTHON_SCRIPT_PATH], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
@@ -88,7 +119,8 @@ router.post('/prompt', upload.single('audio'), (req, res) => {
 
     pythonProcess.stdout.on('data', (data) => {
       const output = data.toString();
-      res.write(`data: ${JSON.stringify({ type: 'chunk', content: output } )}\n\n`);
+      //res.write(`data: ${JSON.stringify({ type: 'chunk', content: output } )}\n\n`);
+      res.write(output);
     });
 
     pythonProcess.stderr.on('data', (data) => {
@@ -120,76 +152,75 @@ router.post('/prompt', upload.single('audio'), (req, res) => {
   }
 });
 
-// Endpoint to handle audio prompts with streaming
-router.post('/prompt-audio', upload.single('audio'), (req, res) => {
-  const promptInput = req.body.prompt || '';
-  const images = req.body.images ? JSON.parse(req.body.images) : [];
-  const messages = req.body.messages ? JSON.parse(req.body.messages) : [];
-  const audioBuffer = req.file?.buffer;
-  
-  // console.log('Received audio prompt:', promptInput);
-  // console.log('Received audio size:', audioBuffer?.length);
-  // console.log('Received images:', images.length);
-  // console.log('Received messages history:', messages.length);
-
-  if (!promptInput && images.length === 0 && !audioBuffer) {
-    return res.status(400).json({ error: 'Prompt, images, or audio are required' });
-  }
-
-  // Set headers for Server-Sent Events
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  // Prepare the input for Python script
-  const inputData = {
-    prompt: promptInput,
-    images: images,
-    messages: messages,
-    audio: audioBuffer ? audioBuffer.toString('base64') : null
-  };
-  
-  const userInput = JSON.stringify(inputData).replace(/"/g, '\\"');
-
-  console.log('Sending audio data to Python script', userInput);
-
+// Endpoint to handle audio transcription only
+router.post('/transcribe-audio', audioUpload.single('audio'), (req, res) => {
   try {
-    // Spawn Python process
-    const pythonProcess = spawn('python3', [PYTHON_SCRIPT_PATH, `'${userInput}'`], {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    const audioBuffer = req.file.buffer;
+    console.log('Received audio for transcription, size:', audioBuffer.length);
+
+    // Prepare input for transcription only
+    const inputData = {
+      audio_to_transcribe: audioBuffer.toString('base64')
+    };
+
+    const userInput = JSON.stringify(inputData);
+
+    // Spawn Python process for transcription
+    const pythonProcess = spawn('python3', [PYTHON_SCRIPT_PATH], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    pythonProcess.stdin.write(userInput);
+    pythonProcess.stdin.end();
+
+    let output = '';
+    let errorOutput = '';
+
     pythonProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      res.write(`data: ${JSON.stringify({ type: 'chunk', content: output } )}\n\n`);
+      output += data.toString();
     });
 
     pythonProcess.stderr.on('data', (data) => {
-      console.error(`stderr: ${data}`);
+      errorOutput += data.toString();
+      console.error(`Transcription stderr: ${data}`);
     });
 
     pythonProcess.on('close', (code) => {
-      console.log(`child process exited with code ${code}`);
-      res.write(`data: ${JSON.stringify({ type: 'complete', code })}\n\n`);
-      res.end();
+      console.log(`Transcription process exited with code ${code}`);
+      
+      if (code === 0) {
+        res.json({
+          success: true,
+          transcribedText: output.trim()
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to transcribe audio',
+          details: errorOutput || output
+        });
+      }
     });
 
-    // Handle client disconnect
-    req.on('close', () => {
-      pythonProcess.kill();
-    });
-
-    // Handle process errors
     pythonProcess.on('error', (error) => {
-      console.error('Failed to start Python script:', error);
-      res.write(`data: ${JSON.stringify({ type: 'error', content: error.message })}\n\n`);
-      res.end();
+      console.error('Failed to start transcription process:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to start audio transcription',
+        details: error.message
+      });
     });
 
   } catch (error) {
-    console.error('Error spawning Python process:', error);
-    res.status(500).json({ error: 'Failed to process audio prompt' });
+    console.error('Error processing audio transcription:', error);
+    res.status(500).json({ 
+      error: 'Failed to process audio transcription',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 

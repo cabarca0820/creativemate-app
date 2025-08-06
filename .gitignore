@@ -9,6 +9,9 @@ lerna-debug.log*
 #backup files
 bk*
 
+#chroma_db (used for vector storage)
+chroma_db
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

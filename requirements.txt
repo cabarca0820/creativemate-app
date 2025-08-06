@@ -1,0 +1,21 @@
+# Core Whisper dependencies for Speech-to-Text
+openai-whisper>=20231117
+torch>=1.9.0
+torchaudio>=0.9.0
+
+# Audio processing libraries for Whisper STT
+pyaudio>=0.2.11
+pydub>=0.25.1
+numpy>=1.21.0
+
+# Additional utility (from existing whisper requirements)
+pathlib2>=2.3.7
+
+# LLM and RAG (Retrieval-Augmented Generation) dependencies
+ollama
+langchain>=0.2.0             # Core LangChain library
+langchain-community>=0.2.0   # For document loaders (e.g., PyPDFLoader) and text splitters
+langchain-ollama>=0.1.0      # For Ollama embeddings
+langchain-chroma>=0.1.0      # For Chroma vector store integration
+pypdf                        # Required by PyPDFLoader for PDF processing
+

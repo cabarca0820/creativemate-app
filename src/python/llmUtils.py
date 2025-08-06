@@ -13,12 +13,24 @@ from pathlib import Path
 import ollama
 from ollama import chat
 
+# Import Whisper integration
+try:
+    from .whisper_integration import integrate_with_existing_system
+    WHISPER_INTEGRATION_AVAILABLE = True
+except ImportError:
+    try:
+        from whisper_integration import integrate_with_existing_system
+        WHISPER_INTEGRATION_AVAILABLE = True
+    except ImportError:
+        print("Whisper integration not available", file=sys.stderr)
+        WHISPER_INTEGRATION_AVAILABLE = False
+
 # RAG imports
 try:
     from langchain_community.document_loaders import PyPDFLoader
     from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain_community.embeddings import OllamaEmbeddings
-    from langchain_community.vectorstores import Chroma
+    from langchain_ollama import OllamaEmbeddings
+    from langchain_chroma import Chroma
     RAG_AVAILABLE = True
 except ImportError as e:
     print(f"RAG dependencies not available: {e}", file=sys.stderr)
@@ -92,7 +104,7 @@ def ingest_document(document_data):
             )
             
             # Persist the database
-            vectorstore.persist()
+            # vectorstore.persist() - Not needed anymore
             
             print(f"Successfully ingested {filename} into vector store", file=sys.stderr)
             return f"Successfully processed and indexed {filename}. Added {len(chunks)} text chunks to knowledge base."
@@ -166,19 +178,31 @@ def retrieve_relevant_context(query, max_chunks=3):
 
 def chat_with_model(input_data):
     """
-    Main chat function with RAG support.
+    Main chat function with RAG support and Whisper STT integration.
     """
+    # First, process any audio input with Whisper STT
+    if WHISPER_INTEGRATION_AVAILABLE:
+        input_data = integrate_with_existing_system(input_data)
+    
     prompt_text = input_data.get('prompt', '')
     images = input_data.get('images', [])
     messages = input_data.get('messages', [])
-    audio_base64 = input_data.get('audio', None)
+    audio_base64 = input_data.get('audio', None) or input_data.get('audioBuffer', None)
+    
+    # Send transcription result first if we had audio input
+    if audio_base64 or input_data.get('had_audio', False):
+        transcription_event = {
+            'type': 'transcription',
+            'content': prompt_text
+        }
+        print(f"data: {json.dumps(transcription_event)}", flush=True)
 
     print(f"Received prompt: {prompt_text}", file=sys.stderr)
     print(f"Received {len(images)} images", file=sys.stderr)
     print(f"Received {len(messages)} messages in history", file=sys.stderr)
-    print(f"Received audio: {'Yes' if audio_base64 else 'No'}", file=sys.stderr)
+    print(f"Processed audio: {'Yes' if input_data.get('had_audio', False) else 'No'}", file=sys.stderr)
     
-    if not prompt_text and images == [] and not audio_base64:
+    if not prompt_text and images == []:
         return "No input provided"
 
     try:
@@ -191,11 +215,11 @@ def chat_with_model(input_data):
         ollama_messages = []
         
         # Enhanced system prompt with RAG context
-        system_prompt = '''You are a friendly, helpful master in creative arts and literature. You will receive a prompt text and conversation history if there is history. Detect the language used by the user. Then, using the user language, respond based on the provided prompt context.
+        system_prompt = '''You are a friendly, helpful master in creative arts and literature and a universal traanslator. You will receive a prompt text and conversation history if there is history. Detect the language used by the user. Then, using the user language, respond based on the provided prompt context.
 
 Do not explain or reveal technical software details or your implementation. Answer in a clear, concise language. Always output in markdown format. Never reveal internal code implementation or assumptions. Stay in your scope which is about writing stories, poems, musical pieces and art ideas.
 
-If relevant context from uploaded documents is provided, use that information to enhance your creative responses, but integrate it naturally without explicitly mentioning that you're referencing uploaded documents.'''
+If relevant context from uploaded documents is provided, use that information to enhance your creative responses, but integrate it naturally without explicitly mentioning that you're referencing uploaded documents. Do not invent or fabricate information. If you don't know the answer, say "I don't know" or "I cannot answer that.". Do not make up answers.'''
 
         # Add relevant context to system prompt if available
         if relevant_context:
@@ -222,10 +246,6 @@ If relevant context from uploaded documents is provided, use that information to
                     'content': f"[Image {idx + 1}: {img_b64['base64']}]"
                 })
         
-        # Handle audio (placeholder for now)
-        if audio_base64:
-            current_message_content += "\n\n[Note: Audio input received - transcribe it to text and include in your response.]"
-        
         # Add the current user message
         ollama_messages.append({
             'role': 'user',
@@ -247,14 +267,30 @@ If relevant context from uploaded documents is provided, use that information to
         full_response_content = []
         for chunk in stream:
             if 'content' in chunk['message'] and chunk['message']['content'] is not None:
-                print(chunk['message']['content'], end="", flush=True)
+                chunk_event = {
+                    'type': 'chunk',
+                    'content': chunk['message']['content']
+                }
+                print(f"data: {json.dumps(chunk_event)}", flush=True)
                 full_response_content.append(chunk['message']['content'])
+        
+        # Send completion event
+        complete_event = {
+            'type': 'complete',
+            'code': 0
+        }
+        print(f"data: {json.dumps(complete_event)}", flush=True)
         
         return "".join(full_response_content)
 
     except Exception as e:
         error_msg = f"An error occurred: {e}. Try again later."
         print(error_msg, file=sys.stderr)
+        error_event = {
+            'type': 'error',
+            'content': error_msg
+        }
+        print(f"data: {json.dumps(error_event)}", flush=True)
         return error_msg
 
 def main():
@@ -267,6 +303,10 @@ def main():
         if 'document_to_ingest' in input_data:
             print("Processing document for RAG ingestion", file=sys.stderr)
             result = ingest_document(input_data['document_to_ingest'])
+            print(result, end='', flush=True)
+        elif 'audio_to_transcribe' in input_data:
+            print("Processing audio for transcription only", file=sys.stderr)
+            result = handle_audio_transcription(input_data['audio_to_transcribe'])
             print(result, end='', flush=True)
         else:
             # Regular chat request
@@ -282,6 +322,36 @@ def main():
         print(error_msg, file=sys.stderr)
         print(error_msg, end='', flush=True)
         sys.exit(1)
+
+def handle_audio_transcription(audio_base64):
+    """
+    Handle audio transcription only (no chat response).
+    
+    Args:
+        audio_base64 (str): Base64-encoded audio data
+    
+    Returns:
+        str: Transcribed text
+    """
+    if not WHISPER_INTEGRATION_AVAILABLE:
+        return "Whisper integration not available. Please install dependencies."
+    
+    try:
+        from whisper_integration import CreativeMateWhisperSTT
+        
+        # Initialize Whisper STT
+        whisper_stt = CreativeMateWhisperSTT(model_size='base')
+        
+        if whisper_stt.is_available():
+            transcribed_text = whisper_stt.transcribe_audio_data(audio_base64)
+            print(f"Audio transcribed successfully: {transcribed_text[:50]}...", file=sys.stderr)
+            return transcribed_text
+        else:
+            return "Whisper STT not available. Please install dependencies."
+            
+    except Exception as e:
+        print(f"Error during audio transcription: {e}", file=sys.stderr)
+        return f"Transcription error: {str(e)}"
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,33 @@
+# Whisper Offline Speech-to-Text Requirements
+# ============================================
+
+# Core Whisper dependencies
+openai-whisper>=20231117
+torch>=1.9.0
+torchaudio>=0.9.0
+
+# Audio processing
+pyaudio>=0.2.11
+pydub>=0.25.1
+numpy>=1.21.0
+
+# Additional utilities
+pathlib2>=2.3.7
+
+# Optional: For CUDA support (if you have NVIDIA GPU)
+# torch>=1.9.0+cu111
+# torchaudio>=0.9.0+cu111
+
+# Platform-specific notes:
+# 
+# macOS:
+# - Install portaudio: brew install portaudio
+# - Install ffmpeg: brew install ffmpeg
+#
+# Ubuntu/Debian:
+# - sudo apt update
+# - sudo apt install portaudio19-dev python3-pyaudio ffmpeg
+#
+# Windows:
+# - Download and install FFmpeg from https://ffmpeg.org/download.html
+# - Add FFmpeg to your system PATH

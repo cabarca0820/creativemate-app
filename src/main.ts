@@ -53,8 +53,12 @@ const createWindow = async (): Promise<void> => {
   } else {
     mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
   }
+
+  //Maximize the window
+  mainWindow.maximize();
+  
   // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  //mainWindow.webContents.openDevTools();
 };
 
 // Handle IPC requests

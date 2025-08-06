@@ -19,7 +19,7 @@ export class ElectronServer {
     this.app.use(cors());
     this.app.use(express.json({ limit: '50mb' })); // Increase body size limit for large conversations
     this.app.use(express.json());
-    this.app.use('/api', pythonRoutes);
+    this.app.use('/', pythonRoutes);
   }
 
   // private setupRoutes(): void {
