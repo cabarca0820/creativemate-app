@@ -216,6 +216,19 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Check that the file size is under 20MB
 - Verify Python RAG dependencies are installed
 
+**Speech to Text Failed**
+- Verify System Dependencies: You should re-check that PortAudio and FFmpeg are correctly installed on your operating system.
+macOS: Open your terminal and run brew install portaudio ffmpeg.
+Ubuntu/Debian: Open your terminal and run sudo apt update followed by sudo apt install portaudio19-dev python3-pyaudio ffmpeg.
+Windows: Ensure you have downloaded and installed FFmpeg, and that its executable directory is added to your system's PATH environment variable.
+- Reinstall Python Dependencies: After confirming the system dependencies, it's a good practice to reactivate your Python virtual environment and reinstall the Python dependencies to ensure everything is linked correctly.
+- Activate your virtual environment:
+macOS/Linux: source venv_creativemate/bin/activate
+Windows: venv_creativemate\Scripts\activate
+- Then run: pip install -r requirements.txt
+This step is critical because even if the Python packages are installed, they might not function correctly without their underlying system libraries.
+
+
 ## 🔗 Useful Links
 
 - [Electron Documentation](https://www.electronjs.org/docs)
