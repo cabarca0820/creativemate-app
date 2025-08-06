@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
+import multer, {FileFilterCallback } from 'multer';
 
 // Define absolute path to the Python script
 //const PYTHON_SCRIPT_PATH = path.join(process.cwd(), 'src', 'python', 'llmUtils.py');
@@ -19,7 +19,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 const PYTHON_VENV_PATH = isDev
   ? path.join(process.cwd(), 'venv_creativemate')
-  : path.join(process.resourcesPath, 'venv_creativemate');
+  : path.join((process as any).resourcesPath, 'venv_creativemate');
 
 const PYTHON_EXECUTABLE = process.platform === 'win32'
   ? path.join(PYTHON_VENV_PATH, 'Scripts', 'python.exe')
@@ -27,7 +27,7 @@ const PYTHON_EXECUTABLE = process.platform === 'win32'
 
 const PYTHON_SCRIPT_PATH = isDev
   ? path.join(process.cwd(), 'src', 'python', 'llmUtils.py')
-  : path.join(process.resourcesPath, 'src', 'python', 'llmUtils.py'); // Adjust this path based on where python script is copied
+  : path.join((process as any).resourcesPath, 'src', 'python', 'llmUtils.py'); // Adjust this path based on where python script is copied
 
 //------End setting of Python script path and venv executable for production builds
 
@@ -36,6 +36,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
+
 
 // Configure multer for document uploads (larger file size limit)
 const documentUpload = multer({
@@ -46,10 +47,11 @@ const documentUpload = multer({
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed'), false);
+      //cb(new Error('Only PDF files are allowed'), false);
     }
   }
 });
+
 
 // Configure multer for audio uploads
 const audioUpload = multer({
