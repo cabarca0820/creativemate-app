@@ -10,6 +10,18 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    asarUnpack: [
+      "**/*.node",
+      "**/*.py",
+      "**/venv_creativemate/**",
+      "**/src/utils/**",
+      "**/dist/server/**"
+    ],
+    extraResource: [
+      "src/utils",
+      "venv_creativemate",
+      "dist/server"
+    ]
   },
   rebuildConfig: {},
   makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
