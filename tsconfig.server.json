@@ -1,0 +1,19 @@
+// tsconfig.server.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS", // Use CommonJS for Node.js backend
+    "outDir": "dist/server", // Output compiled JS to dist/server
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/server/*.ts", "src/routes/*.ts"], // Include server and routes directories
+  "exclude": ["node_modules", "dist"]
+}
