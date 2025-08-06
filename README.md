@@ -9,7 +9,7 @@ A powerful desktop application that combines AI-powered creative assistance with
 - **🎤 Offline Speech-to-Text**: Convert speech to text using OpenAI's Whisper model without internet connection
 - **🌍 Multi-language Support**: Automatic language detection and response in the user's preferred language
 - **💬 Conversation History**: Maintain context across chat sessions
-- **🖼️ Image Support**: Include images in your creative conversations
+- **🖼️ Image Support**: (NOT YET) Will include images when Ollama Gemma 3n supports it
 - **📱 Cross-platform**: Available for Windows, macOS, and Linux
 
 ## 🛠️ Technologies Used
@@ -34,7 +34,7 @@ A powerful desktop application that combines AI-powered creative assistance with
 Before setting up CreativeMate, ensure you have the following installed:
 
 - **Node.js** (v16 or higher)
-- **Python 3.8+**
+- **Python 3.8+** (Tested using 3.11)
 - **Ollama** - [Download and install Ollama](https://ollama.ai/)
 - **FFmpeg** - Required for audio processing
 
@@ -90,7 +90,7 @@ ollama list
 
 ```bash
 # Test Whisper installation
-python src/python/whisper_stt.py --list-models
+python3 src/python/whisper_stt.py --list-models
 ```
 
 ## 🏃‍♂️ Running the Application
@@ -121,19 +121,23 @@ npm run make
 
 ### Basic Chat
 1. Launch CreativeMate
-2. Type your creative prompt in the chat interface
+2. Type your creative prompt in the chat interface OR Use the microphone. Remember to stopthe microphone so that the back-end will transcribe the speech.
 3. Receive AI-powered responses tailored for creative work
 
 ### Document Upload (RAG)
-1. Click the document upload button
+1. Go to Settings. Click the document upload button
 2. Select a PDF file to add to your knowledge base
 3. The AI will use information from uploaded documents to enhance responses
 
 ### Voice Input
 1. Click the microphone button
 2. Speak your prompt clearly
-3. The speech will be transcribed offline using Whisper
+3. The speech will be transcribed offline using Whisper. Check the text and click Send.
 4. The AI will respond to your spoken input
+
+### Supported Languages
+- Check Settings for supported languages for localisation.
+- When using the microphone, speak using different languages.
 
 ### Supported File Types
 - **Documents**: PDF files for knowledge base integration
