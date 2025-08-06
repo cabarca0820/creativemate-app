@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "ESNext",
+    "module": "commonjs",
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -11,10 +11,6 @@
     "outDir": "dist",
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": false,
-    "types": ["node"]
-  },
-  "include": ["src/**/*", "forge.env.d.ts"],
-  "exclude": ["node_modules", "dist", ".vite"]
+    "types": ["node", "electron"]
+  }
 }

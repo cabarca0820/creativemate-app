@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
-import { pythonRoutes } from '../routes/pythonRoutes.ts';
+import { pythonRoutes } from '../routes/pythonRoutes';
 
 
 export class ElectronServer {

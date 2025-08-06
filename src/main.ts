@@ -7,10 +7,6 @@ import { ElectronServer } from './server/server';
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
-// Declare global variables for server info
-declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
-declare const MAIN_WINDOW_VITE_NAME: string;
-
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
@@ -39,7 +35,8 @@ const createWindow = async (): Promise<void> => {
     width: 800,
     height: 600,
     webPreferences: {
-      preload: path.join(__dirname, 'preload', 'preload.js'),
+      //preload: path.join(__dirname, 'preload.js'),
+      
       nodeIntegration: false,
       contextIsolation: true
     },
@@ -57,7 +54,7 @@ const createWindow = async (): Promise<void> => {
   mainWindow.maximize();
   
   // Open the DevTools.
-  //mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 };
 
 // Handle IPC requests

@@ -14,13 +14,14 @@ const config: ForgeConfig = {
       "**/*.node",
       "**/*.py",
       "**/venv_creativemate/**",
-      "**/src/utils/**",
+      "**/src/python/**",
       "**/dist/server/**"
     ],
     extraResource: [
-      "src/utils",
+      "src/python",
       "venv_creativemate",
-      "dist/server"
+      "dist/server",
+      ".vite/build", 
     ]
   },
   rebuildConfig: {},
