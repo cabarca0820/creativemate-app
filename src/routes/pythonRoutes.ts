@@ -227,88 +227,114 @@ router.post('/transcribe-audio', audioUpload.single('audio'), (req, res) => {
 // Endpoint to handle document uploads
 router.post('/upload-document', documentUpload.single('document'), (req, res) => {
   try {
+    console.log('=== PDF Upload Request Started ===');
+    console.log('Request headers:', req.headers);
+    console.log('Request body keys:', Object.keys(req.body));
+    
     if (!req.file) {
+      console.log('❌ No document file provided in request');
       return res.status(400).json({ error: 'No document file provided' });
     }
 
     const documentBuffer = req.file.buffer;
     const originalName = req.file.originalname;
     const fileSize = req.file.size;
+    const mimeType = req.file.mimetype;
 
-    console.log('Received PDF document:', originalName);
-    console.log('Document size:', (fileSize / (1024 * 1024)).toFixed(2), 'MB');
+    console.log('📄 Received PDF document:', originalName);
+    console.log('📊 Document size:', (fileSize / (1024 * 1024)).toFixed(2), 'MB');
+    console.log('📋 MIME type:', mimeType);
+    console.log('🔧 Buffer length:', documentBuffer.length);
 
     // Convert to base64 for RAG processing
     const documentBase64 = documentBuffer.toString('base64');
-    console.log('Document converted to base64, length:', documentBase64.length);
+    console.log('🔄 Document converted to base64, length:', documentBase64.length);
 
     // Prepare input for RAG document ingestion
     const inputData = {
       document_to_ingest: {
         content: documentBase64,
         filename: originalName,
-        size: fileSize
+        size: fileSize,
+        mimeType: mimeType
       }
     };
 
     const userInput = JSON.stringify(inputData);
+    console.log('🐍 Preparing to call Python script for RAG ingestion');
 
     // Spawn Python process for RAG ingestion
-    const pythonProcess = spawn('python3', [PYTHON_SCRIPT_PATH], {
+    console.log('🔧 Python executable path:', PYTHON_EXECUTABLE);
+    console.log('🔧 Python script path:', PYTHON_SCRIPT_PATH);
+    
+    const pythonProcess = spawn(PYTHON_EXECUTABLE, [PYTHON_SCRIPT_PATH], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
+    console.log('🚀 Python process spawned, PID:', pythonProcess.pid);
+
     pythonProcess.stdin.write(userInput);
     pythonProcess.stdin.end();
+    console.log('📤 Input data sent to Python process');
 
     let output = '';
     let errorOutput = '';
 
     pythonProcess.stdout.on('data', (data) => {
+      console.log('📥 Python stdout:', data.toString());
       output += data.toString();
     });
 
     pythonProcess.stderr.on('data', (data) => {
       errorOutput += data.toString();
-      console.error(`RAG ingestion stderr: ${data}`);
+      console.error(`🔴 RAG ingestion stderr: ${data}`);
     });
 
     pythonProcess.on('close', (code) => {
-      console.log(`RAG ingestion process exited with code ${code}`);
+      console.log(`🏁 RAG ingestion process exited with code ${code}`);
+      console.log('📤 Final output:', output);
+      console.log('🔴 Final error output:', errorOutput);
       
       if (code === 0) {
+        console.log('✅ Document processing successful');
         res.json({
           success: true,
           message: 'Document processed and added to knowledge base successfully',
           filename: originalName,
           size: fileSize,
-          output: output.trim()
+          output: output.trim(),
+          mimeType: mimeType
         });
       } else {
+        console.log('❌ Document processing failed');
         res.status(500).json({
           success: false,
           error: 'Failed to process document for RAG',
           details: errorOutput || output,
-          filename: originalName
+          filename: originalName,
+          exitCode: code
         });
       }
     });
 
     pythonProcess.on('error', (error) => {
-      console.error('Failed to start RAG ingestion process:', error);
+      console.error('🔴 Failed to start RAG ingestion process:', error);
       res.status(500).json({
         success: false,
         error: 'Failed to start document processing',
-        details: error.message
+        details: error.message,
+        pythonPath: PYTHON_EXECUTABLE,
+        scriptPath: PYTHON_SCRIPT_PATH
       });
     });
 
 
   } catch (error) {
-    console.error('Error processing document upload:', error);
+    console.error('🔴 Error processing document upload:', error);
     res.status(500).json({ 
       error: 'Failed to process document upload',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
   }
 });
