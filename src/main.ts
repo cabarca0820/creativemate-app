@@ -54,7 +54,7 @@ const createWindow = async (): Promise<void> => {
   mainWindow.maximize();
   
   // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  //mainWindow.webContents.openDevTools();
 };
 
 // Handle IPC requests
