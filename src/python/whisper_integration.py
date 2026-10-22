@@ -62,7 +62,7 @@ class CreativeMateWhisperSTT:
             str: Transcribed text or error message
         """
         if not self.whisper_stt:
-            return "Whisper STT not available. Please install dependencies."
+            raise RuntimeError("Local Whisper model is not available.")
         
         try:
             # Decode base64 audio data
@@ -84,7 +84,7 @@ class CreativeMateWhisperSTT:
                     print(f"Whisper transcription successful. Language: {detected_language}", file=sys.stderr)
                     return transcribed_text
                 else:
-                    return "Failed to transcribe audio. Please try speaking more clearly."
+                    raise RuntimeError("Whisper could not detect speech in the recording.")
                     
             finally:
                 # Clean up temporary file
@@ -95,7 +95,7 @@ class CreativeMateWhisperSTT:
                     
         except Exception as e:
             print(f"Error during Whisper transcription: {e}", file=sys.stderr)
-            return f"Transcription error: {str(e)}"
+            raise RuntimeError(f"Transcription failed: {e}") from e
     
     def is_available(self) -> bool:
         """Check if Whisper STT is available and ready."""
@@ -134,9 +134,9 @@ def integrate_with_existing_system(input_data: dict) -> str:
             # Update the input data with transcribed text
             original_prompt = input_data.get('prompt', '')
             if original_prompt:
-                input_data['prompt'] = f"{original_prompt}\n\n[Voice input transcribed]: {transcribed_text}"
+                input_data['prompt'] = f"{original_prompt}\n\nVoice note: {transcribed_text}"
             else:
-                input_data['prompt'] = f"[Voice input]: {transcribed_text}"
+                input_data['prompt'] = transcribed_text
             
             print(f"Audio transcribed: {transcribed_text}", file=sys.stderr)
             
@@ -149,9 +149,7 @@ def integrate_with_existing_system(input_data: dict) -> str:
             if 'audioBuffer' in input_data:
                 del input_data['audioBuffer']
         else:
-            # Fallback message if Whisper is not available
-            input_data['prompt'] = input_data.get('prompt', '') + "\n\n[Note: Audio was received but could not be transcribed offline. Please install Whisper dependencies for offline speech-to-text.]"
-            input_data['had_audio'] = True
+            raise RuntimeError("Local Whisper model is not available.")
     
     return input_data
 

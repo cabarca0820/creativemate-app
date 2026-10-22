@@ -1,353 +1,292 @@
-import express from 'express';
-import cors from 'cors';
-import { spawn } from 'child_process';
-import path from 'path';
-import multer, {FileFilterCallback } from 'multer';
+import express, { Request, Response } from 'express';
+import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import multer from 'multer';
 
-// Define absolute path to the Python script
-//const PYTHON_SCRIPT_PATH = path.join(process.cwd(), 'src', 'python', 'llmUtils.py');
-const router = express.Router();
+export interface PythonRouteOptions {
+  pythonExecutable: string;
+  pythonScriptPath: string;
+  dataDirectory: string;
+}
 
-//const PORT = process.env.PORT || 3001;
-// const PORT = window.electronAPI?.getServerPort() || 3001;
-// const serverUrl = window.electronAPI?.getServerUrl() || 'http://localhost:3001'; // fallback
+interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
-//------Start setting of Python script path and venv executable for production builds
-// In a packaged app, resources are often in a 'resources' directory
-// The venv_creativemate folder would be copied here by electron-forge
-const isDev = process.env.NODE_ENV === 'development';
+interface FocusedContextItem {
+  kind: 'requirement' | 'memory';
+  title: string;
+  content: string;
+}
 
-const PYTHON_VENV_PATH = isDev
-  ? path.join(process.cwd(), 'venv_creativemate')
-  : path.join((process as any).resourcesPath, 'venv_creativemate');
+const MAX_PROMPT_LENGTH = 50_000;
+const PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_SKILL = 'test_case_generation';
+const SUPPORTED_SKILLS = new Set([DEFAULT_SKILL, 'document_creation']);
 
-const PYTHON_EXECUTABLE = process.platform === 'win32'
-  ? path.join(PYTHON_VENV_PATH, 'Scripts', 'python.exe')
-  : path.join(PYTHON_VENV_PATH, 'bin', 'python3'); // Or 'python' depending on your venv setup
-
-const PYTHON_SCRIPT_PATH = isDev
-  ? path.join(process.cwd(), 'src', 'python', 'llmUtils.py')
-  : path.join((process as any).resourcesPath, 'src', 'python', 'llmUtils.py'); // Adjust this path based on where python script is copied
-
-//------End setting of Python script path and venv executable for production builds
-
-// Configure multer for handling file uploads
-const upload = multer({ 
+const promptUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
 
-
-// Configure multer for document uploads (larger file size limit)
 const documentUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit for documents
-  fileFilter: (req, file, cb) => {
-    // Only accept PDF files
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      //cb(new Error('Only PDF files are allowed'), false);
-    }
-  }
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+  fileFilter: (_request, file, callback) => callback(null, file.mimetype === 'application/pdf'),
 });
 
-
-// Configure multer for audio uploads
 const audioUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit for audio
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
 
-router.use(cors());
-router.use(express.json({ limit: '50mb' })); // Increase body size limit for large conversations
+function parseJsonArray(value: unknown, fieldName: string): unknown[] {
+  if (value === undefined || value === '') return [];
+  if (typeof value !== 'string') throw new Error(`${fieldName} must be JSON`);
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) throw new Error(`${fieldName} must be an array`);
+  return parsed;
+}
 
+function parseMessages(value: unknown): ConversationMessage[] {
+  return parseJsonArray(value, 'messages').map((message) => {
+    if (!message || typeof message !== 'object') throw new Error('Each message must be an object');
+    const candidate = message as Record<string, unknown>;
+    if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') {
+      throw new Error('Each message requires a valid role and text content');
+    }
+    return {
+      role: candidate.role as ConversationMessage['role'],
+      content: candidate.content.slice(0, MAX_PROMPT_LENGTH),
+    };
+  }).slice(-30);
+}
 
-// Root route
-router.get('/', (req, res) => {
-  res.json({ 
-    message: 'LLM Chat API Server', 
-    status: 'running',
-    endpoints: {
-      prompt: 'POST /prompt',
-      health: 'GET /health'
+function parseContextItems(value: unknown): FocusedContextItem[] {
+  return parseJsonArray(value, 'contextItems').slice(0, 30).map((item) => {
+    if (!item || typeof item !== 'object') throw new Error('Each context item must be an object');
+    const candidate = item as Record<string, unknown>;
+    if ((candidate.kind !== 'requirement' && candidate.kind !== 'memory')
+      || typeof candidate.title !== 'string'
+      || typeof candidate.content !== 'string') {
+      throw new Error('Each context item requires a valid kind, title, and content');
+    }
+    const title = candidate.title.trim().slice(0, 120);
+    const content = candidate.content.trim().slice(0, 20_000);
+    if (!title || !content) throw new Error('Context title and content cannot be empty');
+    return { kind: candidate.kind, title, content };
+  });
+}
+
+function spawnPython(options: PythonRouteOptions, input: unknown): ChildProcessWithoutNullStreams {
+  const child = spawn(options.pythonExecutable, [options.pythonScriptPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      CREATIVEMATE_DATA_DIR: options.dataDirectory,
+      PYTHONUNBUFFERED: '1',
+    },
+  });
+  child.stdin.end(JSON.stringify(input));
+  return child;
+}
+
+function sendSse(response: Response, event: Record<string, unknown>): void {
+  if (!response.writableEnded) response.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function streamPython(options: PythonRouteOptions, input: unknown, response: Response): void {
+  response.status(200);
+  response.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  response.flushHeaders();
+
+  let child: ChildProcessWithoutNullStreams;
+  let settled = false;
+
+  try {
+    child = spawnPython(options, input);
+  } catch (error) {
+    sendSse(response, { type: 'error', content: error instanceof Error ? error.message : 'Python failed to start' });
+    response.end();
+    return;
+  }
+
+  const timeout = setTimeout(() => {
+    if (!settled) {
+      settled = true;
+      sendSse(response, { type: 'error', content: 'Local model request timed out' });
+      child.kill();
+      response.end();
+    }
+  }, PROCESS_TIMEOUT_MS);
+
+  child.stdout.on('data', (data: Buffer) => response.write(data));
+  child.stderr.on('data', (data: Buffer) => console.error(`[python] ${data.toString().trimEnd()}`));
+  child.once('error', (error) => {
+    settled = true;
+    clearTimeout(timeout);
+    sendSse(response, { type: 'error', content: `Unable to start the local AI service: ${error.message}` });
+    response.end();
+  });
+  child.once('close', (code) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    if (code === 0) sendSse(response, { type: 'complete', code: 0 });
+    else sendSse(response, { type: 'error', content: 'The local AI process stopped unexpectedly' });
+    response.end();
+  });
+  response.once('close', () => {
+    if (!settled) child.kill();
+  });
+}
+
+function collectPython(
+  options: PythonRouteOptions,
+  input: unknown,
+  response: Response,
+  outputField = 'output',
+): void {
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = spawnPython(options, input);
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : 'Python failed to start' });
+    return;
+  }
+
+  let output = '';
+  let diagnostics = '';
+  let responded = false;
+  const timeout = setTimeout(() => child.kill(), PROCESS_TIMEOUT_MS);
+
+  child.stdout.on('data', (data: Buffer) => { output += data.toString(); });
+  child.stderr.on('data', (data: Buffer) => { diagnostics += data.toString(); });
+  child.once('error', (error) => {
+    responded = true;
+    clearTimeout(timeout);
+    response.status(500).json({ error: `Unable to start the local AI service: ${error.message}` });
+  });
+  child.once('close', (code) => {
+    clearTimeout(timeout);
+    if (responded) return;
+    if (code === 0) response.json({ success: true, [outputField]: output.trim() });
+    else response.status(500).json({ error: output.trim() || diagnostics.trim() || 'Local processing failed' });
+  });
+  response.once('close', () => {
+    if (!child.killed) child.kill();
+  });
+}
+
+export function createPythonRoutes(options: PythonRouteOptions): express.Router {
+  const router = express.Router();
+
+  router.get('/', (_request, response) => {
+    response.json({ message: 'CreativeMate local QA API', status: 'running' });
+  });
+
+  router.get('/health', (_request, response) => {
+    response.json({ status: 'OK', mode: 'local-only', timestamp: new Date().toISOString() });
+  });
+
+  router.post('/prompt', promptUpload.single('audio'), (request: Request, response: Response) => {
+    try {
+      const prompt = typeof request.body.prompt === 'string' ? request.body.prompt.trim() : '';
+      if (prompt.length > MAX_PROMPT_LENGTH) {
+        response.status(413).json({ error: 'Prompt is too long' });
+        return;
+      }
+
+      const messages = parseMessages(request.body.messages);
+      const contextItems = parseContextItems(request.body.contextItems);
+      const images = parseJsonArray(request.body.images, 'images');
+      const skill = typeof request.body.skill === 'string' ? request.body.skill : DEFAULT_SKILL;
+      if (!SUPPORTED_SKILLS.has(skill)) {
+        response.status(400).json({ error: 'Unsupported skill' });
+        return;
+      }
+      if (!prompt && !request.file) {
+        response.status(400).json({ error: 'A requirement or voice recording is required' });
+        return;
+      }
+
+      streamPython(options, {
+        prompt,
+        messages,
+        contextItems,
+        images,
+        skill,
+        audioBuffer: request.file?.buffer.toString('base64') ?? null,
+      }, response);
+    } catch (error) {
+      response.status(400).json({ error: error instanceof Error ? error.message : 'Invalid prompt request' });
     }
   });
-});
 
-// Endpoint to handle LLM prompts with streaming
-router.post('/prompt', upload.single('audio'), (req, res) => {
-  const promptInput = req.body.prompt || '';
-  const images = req.body.images ? JSON.parse(req.body.images) : [];
-  const messages = req.body.messages ? JSON.parse(req.body.messages) : [];
-  const audioBuffer = req.file?.buffer;
+  router.post('/transcribe-audio', audioUpload.single('audio'), (request, response) => {
+    if (!request.file) {
+      response.status(400).json({ error: 'No audio file provided' });
+      return;
+    }
+    collectPython(
+      options,
+      { audio_to_transcribe: request.file.buffer.toString('base64') },
+      response,
+      'transcribedText',
+    );
+  });
 
-  console.log('Received prompt:', promptInput);
-  console.log('Received images:', images.length);
-  console.log('Received messages history:', messages.length);
-  console.log('Received audio size:', audioBuffer?.length);
-
-  if (!promptInput && images.length === 0 && !audioBuffer) {
-    return res.status(400).json({ error: 'Prompt, images, or audio are required' });
-  }
-
-  // Set headers for Server-Sent Events
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  // Prepare the input for Python script
-  const inputData = {
-    prompt: promptInput,
-    images: images,
-    messages: messages,
-    audioBuffer: audioBuffer ? audioBuffer.toString('base64') : null
-  };
-
-  const userInput = JSON.stringify(inputData);
-
-  console.log('1: Sending to Python script:', inputData.images, promptInput);
-  
-  try {
-    // Spawn Python process
-    const pythonProcess = spawn(PYTHON_EXECUTABLE, [PYTHON_SCRIPT_PATH], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-  // Add these two lines immediately after the spawn call
-  pythonProcess.stdin.write(userInput);
-  pythonProcess.stdin.end();
-
-    pythonProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      //res.write(`data: ${JSON.stringify({ type: 'chunk', content: output } )}\n\n`);
-      res.write(output);
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`stderr: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      console.log(`child process exited with code ${code}`);
-      res.write(`data: ${JSON.stringify({ type: 'complete', code })}\n\n`);
-      res.end();
-      pythonProcess.kill();
-    });
-
-    // Handle client disconnect
-    // req.on('close', () => {
-    //   pythonProcess.kill();
-    // });
-
-    // Handle process errors
-    // pythonProcess.on('error', (error) => {
-    //   console.error('Failed to start Python script:', error);
-    //   res.write(`data: ${JSON.stringify({ type: 'error', content: error.message })}\n\n`);
-    //   res.end();
-    // });
-
-  } catch (error) {
-    console.error('Error spawning Python process:', error);
-    res.status(500).json({ error: 'Failed to process prompt' });
-  }
-});
-
-// Endpoint to handle audio transcription only
-router.post('/transcribe-audio', audioUpload.single('audio'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No audio file provided' });
+  router.post('/upload-document', documentUpload.single('document'), (request, response) => {
+    if (!request.file) {
+      response.status(400).json({ error: 'A valid PDF document is required' });
+      return;
     }
 
-    const audioBuffer = req.file.buffer;
-    console.log('Received audio for transcription, size:', audioBuffer.length);
-
-    // Prepare input for transcription only
-    const inputData = {
-      audio_to_transcribe: audioBuffer.toString('base64')
-    };
-
-    const userInput = JSON.stringify(inputData);
-
-    // Spawn Python process for transcription
-    const pythonProcess = spawn('python3', [PYTHON_SCRIPT_PATH], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    pythonProcess.stdin.write(userInput);
-    pythonProcess.stdin.end();
-
-    let output = '';
-    let errorOutput = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-      console.error(`Transcription stderr: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      console.log(`Transcription process exited with code ${code}`);
-      
-      if (code === 0) {
-        res.json({
-          success: true,
-          transcribedText: output.trim()
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: 'Failed to transcribe audio',
-          details: errorOutput || output
-        });
-      }
-    });
-
-    pythonProcess.on('error', (error) => {
-      console.error('Failed to start transcription process:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to start audio transcription',
-        details: error.message
+    const originalName = request.file.originalname.replace(/[\r\n]/g, '').slice(0, 255);
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawnPython(options, {
+        document_to_ingest: {
+          content: request.file.buffer.toString('base64'),
+          filename: originalName,
+          size: request.file.size,
+          mimeType: request.file.mimetype,
+        },
       });
-    });
-
-  } catch (error) {
-    console.error('Error processing audio transcription:', error);
-    res.status(500).json({ 
-      error: 'Failed to process audio transcription',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// Endpoint to handle document uploads
-router.post('/upload-document', documentUpload.single('document'), (req, res) => {
-  try {
-    console.log('=== PDF Upload Request Started ===');
-    console.log('Request headers:', req.headers);
-    console.log('Request body keys:', Object.keys(req.body));
-    
-    if (!req.file) {
-      console.log('❌ No document file provided in request');
-      return res.status(400).json({ error: 'No document file provided' });
+    } catch (error) {
+      response.status(500).json({ error: error instanceof Error ? error.message : 'Document processing failed' });
+      return;
     }
 
-    const documentBuffer = req.file.buffer;
-    const originalName = req.file.originalname;
-    const fileSize = req.file.size;
-    const mimeType = req.file.mimetype;
-
-    console.log('📄 Received PDF document:', originalName);
-    console.log('📊 Document size:', (fileSize / (1024 * 1024)).toFixed(2), 'MB');
-    console.log('📋 MIME type:', mimeType);
-    console.log('🔧 Buffer length:', documentBuffer.length);
-
-    // Convert to base64 for RAG processing
-    const documentBase64 = documentBuffer.toString('base64');
-    console.log('🔄 Document converted to base64, length:', documentBase64.length);
-
-    // Prepare input for RAG document ingestion
-    const inputData = {
-      document_to_ingest: {
-        content: documentBase64,
-        filename: originalName,
-        size: fileSize,
-        mimeType: mimeType
-      }
-    };
-
-    const userInput = JSON.stringify(inputData);
-    console.log('🐍 Preparing to call Python script for RAG ingestion');
-
-    // Spawn Python process for RAG ingestion
-    console.log('🔧 Python executable path:', PYTHON_EXECUTABLE);
-    console.log('🔧 Python script path:', PYTHON_SCRIPT_PATH);
-    
-    const pythonProcess = spawn(PYTHON_EXECUTABLE, [PYTHON_SCRIPT_PATH], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    console.log('🚀 Python process spawned, PID:', pythonProcess.pid);
-
-    pythonProcess.stdin.write(userInput);
-    pythonProcess.stdin.end();
-    console.log('📤 Input data sent to Python process');
-
     let output = '';
-    let errorOutput = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      console.log('📥 Python stdout:', data.toString());
-      output += data.toString();
+    let diagnostics = '';
+    let responded = false;
+    const timeout = setTimeout(() => child.kill(), PROCESS_TIMEOUT_MS);
+    child.stdout.on('data', (data: Buffer) => { output += data.toString(); });
+    child.stderr.on('data', (data: Buffer) => { diagnostics += data.toString(); });
+    child.once('error', (error) => {
+      responded = true;
+      clearTimeout(timeout);
+      response.status(500).json({ error: `Unable to start document processing: ${error.message}` });
     });
-
-    pythonProcess.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-      console.error(`🔴 RAG ingestion stderr: ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      console.log(`🏁 RAG ingestion process exited with code ${code}`);
-      console.log('📤 Final output:', output);
-      console.log('🔴 Final error output:', errorOutput);
-      
+    child.once('close', (code) => {
+      clearTimeout(timeout);
+      if (responded) return;
       if (code === 0) {
-        console.log('✅ Document processing successful');
-        res.json({
-          success: true,
-          message: 'Document processed and added to knowledge base successfully',
-          filename: originalName,
-          size: fileSize,
-          output: output.trim(),
-          mimeType: mimeType
-        });
+        response.json({ success: true, message: output.trim(), filename: originalName, size: request.file?.size });
       } else {
-        console.log('❌ Document processing failed');
-        res.status(500).json({
-          success: false,
-          error: 'Failed to process document for RAG',
-          details: errorOutput || output,
-          filename: originalName,
-          exitCode: code
-        });
+        response.status(500).json({ error: output.trim() || diagnostics.trim() || 'Document indexing failed' });
       }
     });
-
-    pythonProcess.on('error', (error) => {
-      console.error('🔴 Failed to start RAG ingestion process:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to start document processing',
-        details: error.message,
-        pythonPath: PYTHON_EXECUTABLE,
-        scriptPath: PYTHON_SCRIPT_PATH
-      });
+    response.once('close', () => {
+      if (!child.killed) child.kill();
     });
+  });
 
-
-  } catch (error) {
-    console.error('🔴 Error processing document upload:', error);
-    res.status(500).json({ 
-      error: 'Failed to process document upload',
-      details: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
-  }
-});
-
-// Health check endpoint
-router.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-
-// router.listen(PORT, () => {
-//   console.log(`Server running on ${PORT}`);
-// });
-
-export const pythonRoutes = router;
+  return router;
+}

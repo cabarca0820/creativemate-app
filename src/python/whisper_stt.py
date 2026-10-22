@@ -43,9 +43,9 @@ try:
     from pydub import AudioSegment
     DEPENDENCIES_AVAILABLE = True
 except ImportError as e:
-    print(f"Missing dependencies: {e}")
-    print("Please install required packages:")
-    print("pip install openai-whisper pyaudio pydub numpy")
+    print(f"Missing dependencies: {e}", file=sys.stderr)
+    print("Please install required packages:", file=sys.stderr)
+    print("pip install openai-whisper pyaudio pydub numpy", file=sys.stderr)
     DEPENDENCIES_AVAILABLE = False
     sys.exit(1)
 
@@ -236,7 +236,7 @@ class WhisperSTT:
             dict: Transcription result with text, language, and optionally timestamps
         """
         if not os.path.exists(file_path):
-            print(f"✗ File not found: {file_path}")
+            print(f"✗ File not found: {file_path}", file=sys.stderr)
             return None
         
         try:
@@ -256,8 +256,8 @@ class WhisperSTT:
             detected_language = result.get('language', 'unknown')
             
             # print(f"✓ File transcription completed in {transcription_time:.2f}s")
-            print(f"✓ Detected language: {detected_language}")
-            print(f"✓ Transcribed text: {transcribed_text}")
+            print(f"✓ Detected language: {detected_language}", file=sys.stderr)
+            print(f"✓ Transcribed text: {transcribed_text}", file=sys.stderr)
             
             return {
                 'text': transcribed_text,
@@ -267,7 +267,7 @@ class WhisperSTT:
             }
             
         except Exception as e:
-            print(f"✗ Error transcribing file: {e}")
+            print(f"✗ Error transcribing file: {e}", file=sys.stderr)
             return None
     
     def batch_transcribe(self, file_paths: List[str], output_dir: str = None) -> List[Dict[str, Any]]:

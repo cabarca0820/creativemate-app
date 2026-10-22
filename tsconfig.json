@@ -12,5 +12,7 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "types": ["node", "electron"]
-  }
+  },
+  "include": ["src/**/*.ts", "*.ts"],
+  "exclude": ["node_modules", "dist", "bk", "old", "changes", "out"]
 }

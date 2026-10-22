@@ -1,242 +1,105 @@
-# CreativeMate - AI Creative Companion
+# CreativeMate QA
 
-A powerful desktop application that combines AI-powered creative assistance with offline speech-to-text capabilities and document knowledge integration. CreativeMate helps writers, artists, and creative professionals enhance their work through intelligent AI conversations and document-based insights.
+CreativeMate QA is a local-first Electron workbench that turns requirements, user stories, and specifications into reviewable software test scenarios. Ollama performs inference locally, Whisper transcribes microphone recordings locally, and uploaded PDF context is stored in a local Chroma database.
 
-## ✨ Features
+The application has no hosted-AI fallback. After the required models and dependencies are installed, normal QA work does not consume hosted AI tokens or send prompts to a model provider.
 
-- **🤖 AI Creative Assistant**: Chat with an AI specialized in creative arts, literature, and writing
-- **📚 Document Knowledge Base (RAG)**: Upload PDF documents to enhance AI responses with your own knowledge
-- **🎤 Offline Speech-to-Text**: Convert speech to text using OpenAI's Whisper model without internet connection
-- **🌍 Multi-language Support**: Automatic language detection and response in the user's preferred language
-- **💬 Conversation History**: Maintain context across chat sessions
-- **🖼️ Image Support**: (NOT YET) Will include images when Ollama Gemma 3n supports it
-- **📱 Cross-platform**: Available for Windows, macOS, and Linux
+## Current workflow
 
-## 🛠️ Technologies Used
+1. Choose lean Given–When–Then test cases or concise Markdown document creation.
+2. Enter a request or record it with the microphone, then review and correct the local Whisper transcript.
+3. Optionally upload a PDF specification for retrieval context.
+4. Generate and review the formatted result.
 
-### Frontend & Desktop
-- **Electron** - Cross-platform desktop application framework
-- **TypeScript** - Type-safe JavaScript development
-- **Vite** - Fast build tool and development server
-- **Express.js** - Backend API server
-- **Node.js** - JavaScript runtime
+## Local skills
 
-### AI & Machine Learning Backend
-- **Python 3** - AI processing backend
-- **Ollama** - Local LLM inference
-- **OpenAI Whisper** - Offline speech-to-text
-- **LangChain** - RAG (Retrieval-Augmented Generation) framework
-- **ChromaDB** - Vector database for document embeddings
-- **PyPDF** - PDF document processing
+- **Test case generation** — produces 5–8 concise, risk-focused cases in Given–When–Then format by default.
+- **Markdown document creation** — produces a compact, copy-ready Markdown document without unnecessary commentary.
 
-## 📋 Prerequisites
+Skill instructions and generation settings live in `src/python/skills/registry.py`.
 
-Before setting up CreativeMate, ensure you have the following installed:
+## Technology
 
-- **Node.js** (v16 or higher)
-- **Python 3.8+** (Tested using 3.11)
-- **Ollama** - [Download and install Ollama](https://ollama.ai/)
-- **FFmpeg** - Required for audio processing
+- Electron, TypeScript, Vite, and Express
+- Server-Sent Events (SSE) for streamed model output
+- Ollama with `gemma4:latest` for chat
+- Ollama with `nomic-embed-text` for document embeddings
+- OpenAI Whisper running locally for speech-to-text
+- LangChain, ChromaDB, and PyPDF for local document retrieval
 
-### Platform-specific Requirements
+## Prerequisites
 
-#### macOS
+- Node.js 18 or newer
+- Python 3.11 recommended
+- Ollama
+- FFmpeg
+- PortAudio when required by PyAudio
+
+Download the local models once:
+
 ```bash
-brew install portaudio ffmpeg
+ollama pull gemma4:latest
+ollama pull nomic-embed-text
 ```
 
-#### Ubuntu/Debian
-```bash
-sudo apt update
-sudo apt install portaudio19-dev python3-pyaudio ffmpeg python3-venv
-```
-
-#### Windows
-- Download and install FFmpeg from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
-- Add FFmpeg to your system PATH
-
-## 🚀 Installation & Setup
-
-### 1. Clone and Install Dependencies
+## Setup
 
 ```bash
-# Install Node.js dependencies
 npm install
-
-# Create Python virtual environment
 python3 -m venv venv_creativemate
-
-# Activate virtual environment
-# On macOS/Linux:
 source venv_creativemate/bin/activate
-# On Windows:
-venv_creativemate\Scripts\activate
-
-# Install Python dependencies
 pip install -r requirements.txt
-```
-
-### 2. Setup Ollama Model
-
-```bash
-# Pull the required model (this may take a few minutes)
-ollama pull gemma3n:e4b
-
-# Verify the model is available
-ollama list
-```
-
-### 3. Verify Whisper Installation
-
-```bash
-# Test Whisper installation
-python3 src/python/whisper_stt.py --list-models
-```
-
-## 🏃‍♂️ Running the Application
-
-### Development Mode
-
-```bash
-# Start the Electron application in development mode
 npm start
 ```
 
-This will:
-- Launch the Electron application
-- Start the internal Express server
-- Open developer tools for debugging
+On Windows, activate the environment with:
 
-### Building for Production
+```powershell
+venv_creativemate\Scripts\activate
+```
+
+## Development checks
 
 ```bash
-# Package the application for your current platform
-npm run package
+npm run lint
+npm run typecheck
+npm test
+```
 
-# Create distributable installers
+Build an installer or package for the current platform with:
+
+```bash
+npm run package
 npm run make
 ```
 
-## 📖 Usage Guide
+The bundled Python virtual environment contains platform-specific executables. Release packages must therefore be built and verified separately on each target operating system and architecture.
 
-### Basic Chat
-1. Launch CreativeMate
-2. Type your creative prompt in the chat interface OR Use the microphone. Remember to stopthe microphone so that the back-end will transcribe the speech.
-3. Receive AI-powered responses tailored for creative work
+## Local interfaces
 
-### Document Upload (RAG)
-1. Go to Settings. Click the document upload button
-2. Select a PDF file to add to your knowledge base
-3. The AI will use information from uploaded documents to enhance responses
+The Electron preload exposes:
 
-### Voice Input
-1. Click the microphone button
-2. Speak your prompt clearly
-3. The speech will be transcribed offline using Whisper. Check the text and click Send.
-4. The AI will respond to your spoken input
+- `getServerPort()`
+- `getServerUrl()`
+- `getApiToken()`
+- `requestMicrophoneAccess()`
 
-### Supported Languages
-- Check Settings for supported languages for localisation.
-- When using the microphone, speak using different languages.
+The authenticated API is bound to a random port on `127.0.0.1`:
 
-### Supported File Types
-- **Documents**: PDF files for knowledge base integration
-- **Audio**: WAV, MP3, M4A, FLAC, OGG, AAC, WMA for speech-to-text
+- `POST /prompt` — multipart request with SSE output; accepts `test_case_generation` or `document_creation` in the `skill` field
+- `POST /transcribe-audio` — local Whisper transcription
+- `POST /upload-document` — local PDF ingestion
+- `GET /health` — local API health
 
-## 🔧 Configuration
+SSE event types remain `transcription`, `chunk`, `error`, and `complete`.
 
-### Python Virtual Environment
-The application expects a Python virtual environment at `venv_creativemate/` with all required dependencies installed.
+## Privacy boundaries
 
-### Ollama Model
-The default model is `gemma3n:e4b`. You can modify this in `src/python/llmUtils.py` if needed.
+- The renderer cannot navigate to external pages or open new windows.
+- The local API requires a random token generated for each application launch.
+- Prompts and document contents are not written to application logs.
+- Knowledge-base data is stored in Electron's per-user application-data directory.
+- Browser speech recognition is not used; microphone audio is sent only to local Whisper.
+- No analytics, cloud inference, or cloud fallback is configured.
 
-### Whisper Model
-The default Whisper model is `base`. You can change this in the Python configuration for different speed/accuracy trade-offs:
-- `tiny`: Fastest, lowest accuracy (~39 MB)
-- `base`: Good balance (~74 MB) - **Default**
-- `small`: Better accuracy (~244 MB)
-- `medium`: High accuracy (~769 MB)
-- `large`: Highest accuracy (~1550 MB)
-
-## 📁 Project Structure
-
-```
-creativemate-app/
-├── src/
-│   ├── main.ts              # Electron main process
-│   ├── preload.ts           # Electron preload script
-│   ├── renderer.ts          # Electron renderer process
-│   ├── server/
-│   │   └── server.ts        # Express server setup
-│   ├── routes/
-│   │   └── pythonRoutes.ts  # API routes for Python integration
-│   └── python/
-│       ├── llmUtils.py      # Main LLM and RAG processing
-│       ├── whisper_integration.py  # Whisper STT integration
-│       └── whisper_stt.py   # Standalone Whisper implementation
-├── requirements.txt         # Python dependencies
-├── package.json            # Node.js dependencies and scripts
-└── forge.config.ts         # Electron Forge configuration
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
-
-### Development Guidelines
-- Follow TypeScript best practices
-- Maintain clean separation between Electron and Python components
-- Test both online and offline functionality
-- Ensure cross-platform compatibility
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-**Python dependencies not found**
-- Ensure the virtual environment is activated and dependencies are installed
-- Check that the Python executable path is correct in the configuration
-
-**Ollama model not available**
-- Run `ollama pull gemma3n:e4b` to download the required model
-- Verify Ollama is running with `ollama list`
-
-**Audio recording not working**
-- Check microphone permissions in your operating system
-- Ensure PyAudio is properly installed for your platform
-- Verify FFmpeg is installed and accessible
-
-**Document upload fails**
-- Ensure the PDF file is not corrupted
-- Check that the file size is under 20MB
-- Verify Python RAG dependencies are installed
-
-**Speech to Text Failed**
-- Verify System Dependencies: You should re-check that PortAudio and FFmpeg are correctly installed on your operating system.
-macOS: Open your terminal and run brew install portaudio ffmpeg.
-Ubuntu/Debian: Open your terminal and run sudo apt update followed by sudo apt install portaudio19-dev python3-pyaudio ffmpeg.
-Windows: Ensure you have downloaded and installed FFmpeg, and that its executable directory is added to your system's PATH environment variable.
-- Reinstall Python Dependencies: After confirming the system dependencies, it's a good practice to reactivate your Python virtual environment and reinstall the Python dependencies to ensure everything is linked correctly.
-- Activate your virtual environment:
-macOS/Linux: source venv_creativemate/bin/activate
-Windows: venv_creativemate\Scripts\activate
-- Then run: pip install -r requirements.txt
-This step is critical because even if the Python packages are installed, they might not function correctly without their underlying system libraries.
-
-
-## 🔗 Useful Links
-
-- [Electron Documentation](https://www.electronjs.org/docs)
-- [Ollama Documentation](https://ollama.ai/docs)
-- [OpenAI Whisper](https://github.com/openai/whisper)
-- [LangChain Documentation](https://python.langchain.com/)
-
----
-
-**Author**: Christine Abarca  
-**Email**: christineabarca0820@gmail.com
+Ollama and Python/model installation may require internet access initially. Operating-system behavior and third-party dependencies should still be reviewed before making formal regulatory or security claims.

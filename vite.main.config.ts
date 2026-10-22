@@ -13,6 +13,12 @@ export default defineConfig({
       fileName: () => 'main.js'
     },
     outDir: '.vite/build',
-    emptyOutDir: true
+    // Forge builds the main and preload entries into the same directory.
+    // Preserve the sibling preload bundle when the main entry is rebuilt.
+    emptyOutDir: false,
+    rollupOptions: {
+      // Forge rebuilds this native dependency for Electron's ABI.
+      external: ['node-pty']
+    }
   }
 })

@@ -9,11 +9,13 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "eslint --ext .ts,.tsx src *.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "test": "npm run server:build && node --test tests/*.test.cjs",
     "server:build": "tsc -p tsconfig.server.json",
     "clean": "rm -rf .vite node_modules",
     "rebuild": "npm run clean && npm install && npm start"
- },
+  },
   "keywords": [],
   "author": {
     "name": "Christine Abarca",
@@ -44,7 +46,10 @@
     "vite": "^5.4.19"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "electron-squirrel-startup": "^1.0.1",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "node-pty": "^1.1.0"
   }
 }

@@ -96,3 +96,8 @@ typings/
 
 # Electron-Forge
 out/
+
+# Build output and local leftovers
+dist/
+__pycache__/
+*.old

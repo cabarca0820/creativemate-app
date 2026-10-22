@@ -9,19 +9,11 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
-    asarUnpack: [
-      "**/*.node",
-      "**/*.py",
-      "**/venv_creativemate/**",
-      "**/src/python/**",
-      "**/dist/server/**"
-    ],
+    asar: { unpack: '**/*.node' },
     extraResource: [
       "src/python",
       "venv_creativemate",
-      "dist/server",
-      ".vite/build", 
+      "node_modules/node-pty",
     ]
   },
   rebuildConfig: {},

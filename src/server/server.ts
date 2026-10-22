@@ -1,75 +1,80 @@
-import express from 'express';
-import http from 'http';
+import express, { NextFunction, Request, Response } from 'express';
+import http from 'node:http';
 import cors from 'cors';
-import { pythonRoutes } from '../routes/pythonRoutes';
+import { createPythonRoutes, PythonRouteOptions } from '../routes/pythonRoutes';
 
+interface ElectronServerOptions extends PythonRouteOptions {
+  apiToken: string;
+}
 
 export class ElectronServer {
-  private app: express.Application;
+  private readonly app: express.Application;
+  private readonly options: ElectronServerOptions;
   private server: http.Server | null = null;
   private port = 0;
 
-  constructor() {
+  constructor(options: ElectronServerOptions) {
+    this.options = options;
     this.app = express();
     this.setupMiddleware();
-    // this.setupRoutes();
   }
 
   private setupMiddleware(): void {
-    this.app.use(cors());
-    this.app.use(express.json({ limit: '50mb' })); // Increase body size limit for large conversations
-    this.app.use(express.json());
-    this.app.use('/', pythonRoutes);
+    this.app.disable('x-powered-by');
+    this.app.use(cors({
+      origin: (origin, callback) => {
+        const allowed = !origin
+          || origin === 'null'
+          || /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin);
+        callback(allowed ? null : new Error('Origin is not allowed'), allowed);
+      },
+      allowedHeaders: ['Content-Type', 'X-CreativeMate-Token'],
+    }));
+    this.app.use((request, response, next) => this.authenticate(request, response, next));
+    this.app.use(express.json({ limit: '1mb' }));
+    this.app.use('/', createPythonRoutes(this.options));
+    this.app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+      void _next;
+      const message = error instanceof Error ? error.message : 'Invalid request';
+      const status = message.includes('File too large') ? 413 : 400;
+      response.status(status).json({ error: message });
+    });
   }
 
-  // private setupRoutes(): void {
-  //   this.app.get('/api/health', (req, res) => {
-  //     res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  //   });
-
-  //   this.app.get('/api/prompt', (req, res) => {
-  //     res.json({ 
-  //       message: 'Hello from Electron server!',
-  //       data: [1, 2, 3, 4, 5]
-  //     });
-  //   });
-
-  //   // Add more routes as needed
-  //   this.app.post('/api/data', (req, res) => {
-  //     console.log('Received data:', req.body);
-  //     res.json({ success: true, received: req.body });
-  //   });
-  // }
+  private authenticate(request: Request, response: Response, next: NextFunction): void {
+    if (request.header('x-creativemate-token') !== this.options.apiToken) {
+      response.status(401).json({ error: 'Local API authentication failed' });
+      return;
+    }
+    next();
+  }
 
   public start(): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(0, 'localhost', () => {
+      this.server = this.app.listen(0, '127.0.0.1', () => {
         const address = this.server?.address();
         if (address && typeof address === 'object') {
           this.port = address.port;
-          console.log(`Electron server started on http://localhost:${this.port}`);
+          console.log(`Local API started on 127.0.0.1:${this.port}`);
           resolve(this.port);
         } else {
-          reject(new Error('Failed to start server'));
+          reject(new Error('Failed to determine the local API port'));
         }
       });
+      this.server.once('error', reject);
     });
   }
 
   public stop(): Promise<void> {
-    return new Promise((resolve) => {
-      if (this.server) {
-        this.server.close(() => {
-          console.log('Electron server stopped');
-          resolve();
-        });
-      } else {
+    return new Promise((resolve, reject) => {
+      if (!this.server) {
         resolve();
+        return;
       }
+      this.server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
     });
-  }
-
-  public getPort(): number {
-    return this.port;
   }
 }
